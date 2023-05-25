@@ -1,0 +1,71 @@
+close all
+%% preuzimanje modela (DC_ID_2017a.slx za starije verzije)
+if ~isfile(&#39;DC_ID.slx&#39;)
+urlwrite(&#39;http://www.tsau.ac.me/ISAU/P5/DC_ID.slx&#39;,&#39;DC_ID.slx&#39;)
+end
+%% parametri motora
+i=1;j=4;
+R=0.32*i; bc=0;
+L=0.001;
+J=7.5*j*2*10^-4;%k=2 ali da ne remeti se
+b=0.0002;
+k=0.0323;
+A=[-R/L -k/L 0;k/J -b/J 0;0 1 0];
+B=[1/L;0;0];
+C=[0 1 0];
+%%
+T=0.1; % perioda odabiranja
+%% definisanje mreže
+netDC = narxnet(0:1,1:2,3);%x(n+1)=Ax(n)+bu(n) y(n)=Cx(n)
+% net2.inputs{1}.processFcns = {}; % nije neophodno za offline identif
+% net2.inputs{2}.processFcns = {};
+% net2.outputs{2}.processFcns = {};
+netDC.trainparam.epochs=1000;
+netDC.divideFcn = &#39;&#39;; % ovo je bitno. svi podaci
+%% prikupljanje podataka
+test=[1 1]; % testni signal, mora se definisati, da bi radio Simulink. U ovoj fazi se ne koristi
+signal=-1; %kod svica na poziciji -1 je bijeli sum
+var=100; % varijansa suma
+trajanje=1; % trajanje jednog odbirka suma [s]
+tfinal=200; % trajanje simulacije [s]
+sim(&#39;DC_ID.slx&#39;);
+%% obučavanje
+[Xs2,Xi2,Ai2,Ts2] = preparets(netDC,con2seq(u.signals.values&#39;),{},con2seq(y.signals.values&#39;));
+netDC = train(netDC,Xs2,Ts2,Xi2,Ai2);
+netDCc=closeloop(netDC);
+% %% podaci za obucavanje
+figure(1)
+% subplot(2,1,1)
+plot(u.time,u.signals.values,&#39;linewidth&#39;,1)%crta bijeli signal koji smo generisali u modelu motora
+ylabel(&#39;u(t)&#39;),grid
+figure(2)
+% subplot(2,1,2)
+plot(y.time,y.signals.values,&#39;linewidth&#39;,0.5), hold on %kako sistem daje izlaz za zadati sum
+plot(u.time,cell2mat(netDCc(con2seq(u.signals.values&#39;))),&#39;--&#39;,&#39;linewidth&#39;,1)%kakvi su izlazi iz neuralne
+mreze nakon treniranja
+xlabel(&#39;Vrijeme [s]&#39;)
+legend(&#39;y(t)&#39;,&#39;y_{narx}(t)&#39;), grid
+set(gcf,&#39;units&#39;,&#39;centimeters&#39;,&#39;position&#39;,[10 10 14 6]);
+% %% validacija
+clear test;
+t1=[0:T:10]&#39;; s1=ones(size(t1))*i;
+t2=[10+T:T:20]&#39;; s2=sin(i/2*t2)+1.1*sin(j*t2);
+t3=[20+T:T:30]&#39;; s3=ones(size(t3))*-2;
+test.time=[t1;t2;t3]; % prva kolona vrijeme
+test.signals.values=[s1;s2;s3]; % step funkcija ili neka druga funkcija za validaciju
+signal=1; tfinal=30;
+sim(&#39;DC_ID.slx&#39;)
+% %%
+figure(3)
+subplot(2,1,1)
+plot(test.time,test.signals.values,&#39;linewidth&#39;,1)
+ylabel(&#39;u(t)&#39;), grid
+subplot(2,1,2)
+plot(y.time,y.signals.values,&#39;linewidth&#39;,1), hold on
+plot(test.time,cell2mat(netDCc(con2seq(test.signals.values&#39;))),&#39;--&#39;,&#39;linewidth&#39;,1)
+xlabel(&#39;Vrijeme [s]&#39;)
+ylabel(&#39;Brzina&#39;);
+legend(&#39;y(t)&#39;,&#39;y_{narx}(t)&#39;), grid
+set(gcf,&#39;units&#39;,&#39;centimeters&#39;,&#39;position&#39;,[10 10 14 6]);
+% % Simulink model mreze se moze generisati sa
+% gensim(netDCc,T) % u slx je fajlu je sacuvan obuceni model%
